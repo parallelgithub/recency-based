@@ -38,22 +38,11 @@ object Recommendation {
 				val tempRating = RatingDataStructure(fields(0).toInt, fields(1).toInt, fields(2).toDouble, fields(3).toLong)
 				tempRating
 				}
-/*				
-		//val movieFile = Source.fromFile("../dataset/ml-1m/movies.dat")
-		val movieFile = Source.fromFile("../dataset/ml-100k/u.item")
-			.getLines
-			.toList
-			.map{line =>
-				//val fields = line.split("::")
-				val fields = line.split('|')
-				val tempMovie = MovieDataStructure(fields(0).toInt, fields(1), fields(2))
-				tempMovie
-				}
-*/	
+	
 		val similarityThreshold = 30 
 		val alpha = 0.7
 		val ratingScale = 5.0
-		val numTrainUsers = 60
+		val trainingUserSize = 400
 		val numUsers = ratingFile 
 		                .reduceLeft( (a,b) => if (a.userID > b.userID) a else b) 
 		                .userID
@@ -62,7 +51,7 @@ object Recommendation {
 		                 .movieID
 		//println(numMovies+ " " + numUsers)
 
-		//隨機從numUsers個users中挑出numTrainUsers個traning users
+		//隨機從numUsers個users中挑出trainingUserSize個traning users
 		val userCandidate = List.range(1, numUsers+1)
 		def generateTestUsers(candidate: List[Int],count: Int, n: Int): List[Int] = {
 			if(count == 0)
@@ -72,11 +61,11 @@ object Recommendation {
 				candidate(i) :: generateTestUsers((candidate.take(i) ::: candidate.drop(i+1)), count-1, n-1)
 			}
 		}
-		val trainUsers = generateTestUsers(userCandidate, numTrainUsers, numUsers)
+		val trainUsers = generateTestUsers(userCandidate, trainingUserSize, numUsers)
 		//println(trainUsers)
 
 		//將training users的評分資料存入 global variable "ratings" 中
-		//val ratings = (for(user <- 1 to numTrainUsers) yield {
+		//val ratings = (for(user <- 1 to trainingUserSize) yield {
 		val ratings = (for(user <- trainUsers) yield {
 							val ratingArray = Array.fill[Double](numMovies)(0.0)
 							val oneUserRatings = ratingFile.filter( _.userID == user )
@@ -108,7 +97,7 @@ object Recommendation {
 	val numUsers = ratings.size
 	val numMovies = ratings(0).size
 	val targetMovieIndex = 3
-	val numTrainUsers = numUsers
+	val trainingUserSize = numUsers
 	val testTime: Vector[Long] = Vector(1095811200,1103846400,1035244800,0,1058832000)
 */
 
@@ -138,7 +127,7 @@ object Recommendation {
 	def coratedMovies(movie1: Int, movie2: Int) = {
 
 		def iterateMovies(userIndex: Int): List[(Double, Double, Int)] = {
-			if(userIndex == numTrainUsers)
+			if(userIndex == trainingUserSize)
 				Nil
 			else{
 				if((ratings(userIndex)(movie1) > 0.0) && (ratings(userIndex)(movie2) > 0.0)){
@@ -160,6 +149,7 @@ object Recommendation {
 		if(zipRatings.isEmpty)
 			0.0
 		else {
+			//以下對應到原 paper 的 equation(1)
 			val value = zipRatings 
 			             .map{ case(m1, m2, user) => (m1 * m2 , m1 * m1 , m2 * m2) } 
 			             .reduceLeft((a,b) => (a._1 + b._1 , a._2 + b._2 , a._3 + b._3 ))
@@ -173,8 +163,6 @@ object Recommendation {
 			value._1 / denominator
 		}	
 	}
-	//println(cosineSimilarity(0,3))
-	//println(cosineSimilarity(1,2))
 
 	def pearsonSimilarity(movie1: Int, movie2: Int) = {
 
@@ -186,11 +174,12 @@ object Recommendation {
 		if(zipRatings.isEmpty)
 			0.0
 		else {
+			//以下對應到原 paper 的 equation(2)
 			val value = zipRatings 
 			             .map{ case(m1, m2, user) => 
 			             	     val average = ratings(user).reduceLeft(_+_) / ratings(user).count(_ != 0.0) 
-			             	     val v1 = m1 - average + 0.0001 
-			             	     val v2 = m2 - average + 0.0001 
+			             	     val v1 = m1 - average - 0.0001 
+			             	     val v2 = m2 - average - 0.0001
 			             	     (v1 * v2 , v1 * v1 , v2 * v2) 
 			             	 } 
 			             .reduceLeft((a,b) => (a._1 + b._1 , a._2 + b._2 , a._3 + b._3 ))
@@ -203,17 +192,23 @@ object Recommendation {
 			if(denominator == 0.0){
 				println(" !!! pearsonSimilarity denominator==0 , zipRatings: " + zipRatings)
 			}
-			value._1 / denominator
+
+			val similarValue = value._1 / denominator
+
+			//linear map
+			(similarValue + 1.0) / 2.0
 		}
 	}
-	//println(pearsonSimilarity(2,3))
-	//println(pearsonSimilarity(3,4))
 
+	//
+	//回傳closure function，綁定normalizeTable，
+	//使得在case class Similarity中計算 similarity時，同時可查詢user評分的normalize值
 	def recencySimilarityClosure() = {
 
 		def gaussianNormalize(matrix: Vector[Vector[Double]]): Vector[Vector[Double]] = {
 			//println("Gaussian normalization table was Constructed.")
 			matrix.map{ row =>
+				//以下對應到原 paper 的 equation(7)
 				val nonzeroElements = row.filter(_ != 0.0)
 				val numNonzero = nonzeroElements.size
 				val average = row.reduceLeft(_+_) / numNonzero
@@ -238,10 +233,11 @@ object Recommendation {
 
 		val closureFunction = (movie1: Int, movie2: Int) => {
 			
+				//以下對應到原 paper 的 equation(8)
 				var count = 0
 				var distance = 0.0
 
-				for(user <- 0 until numTrainUsers){
+				for(user <- 0 until trainingUserSize){
 					if((ratings(user)(movie1) > 0.0) && (ratings(user)(movie2) > 0.0)){
 						count = count + 1
 						distance = distance + math.abs(normalizeTable(user)(movie1)-normalizeTable(user)(movie2))
@@ -256,6 +252,7 @@ object Recommendation {
 					//Random.nextDouble()
 				}else {
 					val averageManhattanDistance = distance / count
+					//原 paper 的 equation(6)
 					math.exp(-averageManhattanDistance)
 				}
 		}
@@ -301,6 +298,7 @@ object Recommendation {
 		
 	} //end of def nearestNeighbors()
 
+	//Tradition item-based CF
 	def itemBasedPredict(similarityTable: Similarity, 
 		                 targetUserVector: Vector[Double], 
 		                 testTime: Vector[Long], 
@@ -311,6 +309,8 @@ object Recommendation {
 		if(nearestTable(targetMovieIndex).isEmpty)
 			-1.0
 		else{
+			//以下對應到原 paper 的 equation(3)
+
 			val value1 = nearestTable(targetMovieIndex).map{ x =>
 							targetUserVector(x) * similarityTable.sim(targetMovieIndex, x) 
 						}.reduceLeft(_+_)
@@ -330,6 +330,7 @@ object Recommendation {
 
 	}
 
+	//Recency-based CF
 	def recencyBasedPredict(similarityTable: Similarity, 
 		                    targetUserVector: Vector[Double], 
 		                    testTime: Vector[Long], 
@@ -345,10 +346,11 @@ object Recommendation {
 					._1
 			}
 
-			//Train時 唯一用到時間因素的地方??
+			//Train時 唯一用到時間因素的地方
 			val recentMovie = recentNearestNeighbor()
 			//println("  recent movie: " + k)
 
+			//以下對應到原 paper 的 equation(10)
 			nearestTable(targetMovieIndex).map{ i =>		
 				val recentRating = targetUserVector(recentMovie)
 				math.pow(1.0 - math.abs(targetUserVector(i)-recentRating)/ratingScale, alpha)	
@@ -361,8 +363,8 @@ object Recommendation {
 		if(nearestTable(targetMovieIndex).isEmpty)
 			-1.0
 		else{
-			//println("user " + userIndex + " movie " + movieIndex + " nearest neighbors: " + nearestTable(movieIndex))
-			//println("  " + ratingWeight(userIndex,movieIndex,nearestTable))
+			//以下對應到原 paper 的 equation(9)
+			
 			val weightList = ratingWeight()
 			
 			val nearestZipWeight = nearestTable(targetMovieIndex).zip(weightList)
@@ -389,17 +391,15 @@ object Recommendation {
 
 		//!!move the follow code to top
 
-		val selection = 3 
+		//選擇不同的Experiment configuration
+		val selection = 5 
 
 		//Train 
 		//Training data is "ratings: Vector" 
 		val (predictFunction, similarityTable) = selection match{
 			case 1 => (recencyBasedPredict _, Similarity(cosineSimilarity))
 			case 2 => (recencyBasedPredict _, Similarity(pearsonSimilarity)) 
-			case 3 => 
-					val recencySimilarity = recencySimilarityClosure()
-					val recSimilarityTable = Similarity(recencySimilarity)
-					(recencyBasedPredict _, recSimilarityTable)
+			case 3 => (recencyBasedPredict _, Similarity(recencySimilarityClosure()))
 			case 4 => (itemBasedPredict _, Similarity(pearsonSimilarity))
 			case 5 => (itemBasedPredict _, Similarity(cosineSimilarity))
 
@@ -411,11 +411,11 @@ object Recommendation {
 		var mae: Double = 0.0
 		var maeCount: Int = 0
 
-		//從所有 users 中過濾掉 training users，剩下的就作為 test users
+		//從所有 users 中過濾掉 training users，剩下的就就是 test users
 		val testUsers = userCandidate.filterNot(trainUsers.toSet)
 		//println(testUsers)
 
-		//for(user <- (numTrainUsers + 1) to numUsers ){
+		//for(user <- (trainingUserSize + 1) to numUsers ){
 		for(user <- testUsers){
 			//println(user + "th user test")
 			val ratingArray = Array.fill[Double](numMovies)(0.0)
@@ -428,28 +428,33 @@ object Recommendation {
 			}
 			val testUser = ratingArray.toVector
 			val testTime = timeArray.toVector
+			
+			//原 paper 的 Experiment : 
+			// "In All But One, the newest rated items for each user are used for testing."
 			val targetMovieIndex = oneUserRatings 
 			                        .reduceLeft( (a,b) => if (a.timestamp > b.timestamp) a else b) 
 			                        .movieID - 1
 
 			// 檢查 targetMovie 是否有 user (in training data) 評分過
 			var movieBeRated = false
-			for(i <- 0 until numTrainUsers)
+			for(i <- 0 until trainingUserSize)
 				if(ratings(i)(targetMovieIndex) > 0.0)
 					movieBeRated = true
 
 			if(movieBeRated){
-				// targetMovie 有其他評分
+				// 當 targetMovie 有其他評分時
 
 				// 開始測試
 				val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
 
-				mae = mae + math.abs(predictValue - testUser(targetMovieIndex))
-				maeCount = maeCount + 1
+				if(! predictValue.isNaN) {
+					mae = mae + math.abs(predictValue - testUser(targetMovieIndex))
+					maeCount = maeCount + 1
+				}
 
 				println("User " + user + " and movie " + targetMovieIndex + " : ")
-				println(" " + "%.3f".format(predictValue) )
-				println(" " + testUser(targetMovieIndex))
+				println(" Predic rating " + "%.3f".format(predictValue) )
+				println(" Actual rating " + testUser(targetMovieIndex))
 				println					
 			}else{
 				print("No user rate the movie " + targetMovieIndex )
@@ -459,7 +464,8 @@ object Recommendation {
 
 		} //end of for(user <- )
 
-		println("MAE = " + mae / maeCount)
+		//原 paper 的 equation(11)
+		println("MAE = " + "%.3f".format(mae / maeCount) )
 
 
 	} //end of def main
