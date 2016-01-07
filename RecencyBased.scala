@@ -44,8 +44,6 @@ object Recommendation {
 		val alpha = 0.7
 		val ratingScale = 5.0
 		val numTrainUsers = 60
-		//val numUsers = ratingFile(ratingFile.size-1).userID
-		//val numMovies = movieFile(movieFile.size-1).movieID
 		val numUsers = ratingFile
 						.reduceLeft( (a,b) => if (a.userID > b.userID) a else b)
 						.userID 
@@ -53,9 +51,6 @@ object Recommendation {
 						.reduceLeft( (a,b) => if (a.movieID > b.movieID) a else b)
 						.movieID 
 		//println(numMovies+ " " + numUsers)
-		//println(movieFile(movieFile.size - 1 ))
-		//println(ratingFile(ratingFile.size - 1))
-
 
 		val ratings = (for(user <- 1 to numTrainUsers) yield {
 							val ratingArray = Array.fill[Double](numMovies)(0.0)
@@ -64,7 +59,6 @@ object Recommendation {
 							ratingArray.toVector
 						}).toVector
 	
-
 /*
 	//my test data
 	val ratings: Vector[Vector[Double]] = Vector(
@@ -74,7 +68,7 @@ object Recommendation {
 		          Vector(2,4,3,0,2)
 		          )
 	
-	//origin paper test data
+	//原paper上的測試 example
 	val ratings: Vector[Vector[Double]] = Vector(
 				  Vector(1,4,2,5,4),
 		          Vector(4,2,5,2,0),
@@ -139,16 +133,16 @@ object Recommendation {
 		if(zipRatings.isEmpty)
 			0.0
 		else {
-			val value = zipRatings
-							.map{ case(m1, m2, user) => (m1 * m2 , m1 * m1 , m2 * m2)
-								}
-							.reduceLeft((a,b) => (a._1 + b._1 , a._2 + b._2 , a._3 + b._3 ))
+			val value = zipRatings 
+			             .map{ case(m1, m2, user) => (m1 * m2 , m1 * m1 , m2 * m2) } 
+			             .reduceLeft((a,b) => (a._1 + b._1 , a._2 + b._2 , a._3 + b._3 ))
 
 			val denominator = ( math.sqrt(value._2) * math.sqrt(value._3) )
 			
 			//it won't happen unless zero vector(i.e. a movie withou any rating)
 			if(denominator == 0.0)
 				println("  !!!!!! cosineSimilarity denominator==0")
+
 			value._1 / denominator
 		}	
 	}
@@ -252,18 +246,17 @@ object Recommendation {
 			def iterateEachMovie(movieIndex: Int): List[Int] = {
 				//println(movieIndex +" " + numMovies)
 
-					movieIndex match {
-						case index if (index == numMovies) => Nil
-						case index if (index != targetMovie) =>
-							//print(similarTable.sim(index, targetMovie) + " ")
-							if(targetUserVector(index) > 0.0)
-								index :: iterateEachMovie(movieIndex+1)
-							else
-								iterateEachMovie(movieIndex+1)
-						case _ => iterateEachMovie(movieIndex+1)
+				movieIndex match {
+					case index if (index == numMovies) => Nil
+					case index if (index != targetMovie) =>
+						//print(similarTable.sim(index, targetMovie) + " ")
+						if(targetUserVector(index) > 0.0)
+							index :: iterateEachMovie(movieIndex+1)
+						else
+							iterateEachMovie(movieIndex+1)
+					case _ => iterateEachMovie(movieIndex+1)
 
-					}
-					
+				}
 
 			}
 
@@ -273,12 +266,13 @@ object Recommendation {
 				.sortWith( (a,b) => similarTable.sim(a,targetMovie) > similarTable.sim(b,targetMovie) )
 				.take(similarityThreshold)
 		
-		}
+		} //end of def findNearest()
 
 		(for(movie <- 0 until numMovies) yield {
 			findNearest(movie)
 		}).toVector
-	}
+		
+	} //end of def nearestNeighbors()
 
 	def itemBasedPredict(similarityTable: Similarity, 
 		                 targetUserVector: Vector[Double], 
@@ -364,19 +358,14 @@ object Recommendation {
 
 	}
 
-	def evaluationMAE(userIndex: Int, predictValue: Double) = {
-		val n = ratings(userIndex).count(_ != 0.0)
-
-		n
-	}
-
 	def main(args: Array[String]){
 
 		//!!move the follow code to top
 
-		val selection = 1 
+		val selection = 5 
 
-		//Train by "ratings" which is an initialed globle data structure 
+		//Train 
+		//Training data is "ratings: Vector" 
 		val (predictFunction, similarityTable) = selection match{
 			case 1 => (recencyBasedPredict _, Similarity(cosineSimilarity))
 			case 2 => (recencyBasedPredict _, Similarity(pearsonSimilarity)) 
@@ -390,7 +379,12 @@ object Recommendation {
 			//case _ => println("Not correct selection")
 		}
 
-		for(user <- (numTrainUsers + 1) to numUsers.min(numTrainUsers+100) ){
+		//Predict
+
+		var mae: Double = 0.0
+		var maeCount: Int = 0
+
+		for(user <- (numTrainUsers + 1) to numUsers/*.min(numTrainUsers+10)*/ ){
 			//println(user + "th user test")
 			val ratingArray = Array.fill[Double](numMovies)(0.0)
 			val timeArray = Array.fill[Long](numMovies)(0)
@@ -406,25 +400,35 @@ object Recommendation {
 									.reduceLeft( (a,b) => if (a.timestamp > b.timestamp) a else b)
 									.movieID - 1
 
-				var movieBeRated = false
-				for(i <- 0 until numTrainUsers)
-					if(ratings(i)(targetMovieIndex) > 0.0)
-						movieBeRated = true
-				if(movieBeRated){
-					val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
+			// 檢查 targetMovie 是否有 user (in training data) 評分過
+			var movieBeRated = false
+			for(i <- 0 until numTrainUsers)
+				if(ratings(i)(targetMovieIndex) > 0.0)
+					movieBeRated = true
 
-					println("User " + user + " and movie " + targetMovieIndex + " : ")
-					println(" " + predictValue)
-					println(" " + testUser(targetMovieIndex))
-					println					
-				}else{
-					print("No user rate the movie " + targetMovieIndex )
-					println(" ,we skip this test data")
-					println
-				}
+			if(movieBeRated){
+				// targetMovie 有其他評分
+				// 開始測試
+
+				val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
+
+				mae = mae + math.abs(predictValue - testUser(targetMovieIndex))
+				maeCount = maeCount + 1
+
+				println("User " + user + " and movie " + targetMovieIndex + " : ")
+				println(" " + predictValue)
+				println(" " + testUser(targetMovieIndex))
+				println					
+			}else{
+				print("No user rate the movie " + targetMovieIndex )
+				println(" ,we skip this test data")
+				println
+			}
+
+			println("MAE = " + mae / maeCount)
 
 
-		} //end of for
+		} //end of for(user <- )
 
 
 	} //end of def main
