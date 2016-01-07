@@ -1,3 +1,5 @@
+// 注意 userID movieID 與 userIndex movieIndex 分別差 1
+
 import scala.io.Source
 import scala.util.Random
 import scala.math
@@ -17,7 +19,7 @@ object Recommendation {
 		case class RatingDataStructure(userID: Int, movieID: Int, rating: Double, timestamp: Long)
 
 		//val ratingFile = Source.fromFile("../dataset/ml-1m/ratings.dat")
-		val ratingFile = Source.fromFile("../dataset/ml-100k/u.data")
+		val ratingFile = Source.fromFile("u.data")
 			.getLines
 			.toList
 			.map{line =>
@@ -241,27 +243,28 @@ object Recommendation {
 	}
 
 	//對每部電影儲存的nearest neighbors(measure by similarity)，排序、有threshold
+	//Return type : Vector[List[Int]]
 	//def nearestNeighbors(matrix: Vector[Vector[Double]], threshold: Double): Vector[List[Int]] ={
-	def nearestNeighbors(similarTable: Similarity): Vector[List[Int]] ={
+	def nearestNeighbors(similarTable: Similarity, targetUserVector: Vector[Double]) = {
+
 		def findNearest(targetMovie: Int): List[Int] = {
 			//println(targetMovie)
 			def iterateEachMovie(movieIndex: Int): List[Int] = {
 				//println(movieIndex +" " + numMovies)
-				if(movieIndex == numMovies)
-					Nil
-				else{
+
 					movieIndex match {
+						case index if (index == numMovies) => Nil
 						case index if (index != targetMovie) =>
 							//print(similarTable.sim(index, targetMovie) + " ")
-							//if(similarTable.sim(index,targetMovieIndex) > threshold )
+							if(targetUserVector(index) > 0.0)
 								index :: iterateEachMovie(movieIndex+1)
-							//else
-							//	iterateEachMovie(movieIndex+1)
+							else
+								iterateEachMovie(movieIndex+1)
 						case _ => iterateEachMovie(movieIndex+1)
 
 					}
 					
-				}
+
 			}
 
 			//!! notice sortWith comparing by NaN
@@ -278,11 +281,11 @@ object Recommendation {
 	}
 
 	def itemBasedPredict(similarityTable: Similarity, 
-							targetUserVector: Vector[Double], 
-							testTime: Vector[Long],
-							targetMovieIndex: Int ) = {
+			             targetUserVector: Vector[Double], 
+             			 testTime: Vector[Long],
+			             targetMovieIndex: Int ) = {
 
-		var nearestTable = nearestNeighbors(similarityTable)
+		var nearestTable = nearestNeighbors(similarityTable, targetUserVector)
 
 		if(nearestTable(targetMovieIndex).isEmpty)
 			-1.0
@@ -311,7 +314,7 @@ object Recommendation {
 							testTime: Vector[Long],
 							targetMovieIndex: Int ) = {
 
-		var nearestTable = nearestNeighbors(similarityTable)
+		var nearestTable = nearestNeighbors(similarityTable, targetUserVector)
 
 		def ratingWeight(): List[Double] = {
 			def recentNearestNeighbor(): Int = {
@@ -454,11 +457,12 @@ object Recommendation {
 									.movieID - 1
 
 			val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
-			if(predictValue.isNaN) {
+			//if(predictValue.isNaN) {
 				println("User " + user + " and movie " + targetMovieIndex + " : ")
 				println(" " +predictValue)
 				println(" " + testUser(targetMovieIndex))
-			}
+				println
+			//}
 		} //end of for
 
 
