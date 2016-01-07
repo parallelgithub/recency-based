@@ -268,7 +268,7 @@ object Recommendation {
 			}
 
 			//!! notice sortWith comparing by NaN
-			//!! sorting make result bad BUT SORTING IS PART OF ALGORITHM
+			//!! SORTING IS THE PART OF ALGORITHM
 			iterateEachMovie(0)
 				.sortWith( (a,b) => similarTable.sim(a,targetMovie) > similarTable.sim(b,targetMovie) )
 				.take(similarityThreshold)
@@ -281,9 +281,9 @@ object Recommendation {
 	}
 
 	def itemBasedPredict(similarityTable: Similarity, 
-			             targetUserVector: Vector[Double], 
-             			 testTime: Vector[Long],
-			             targetMovieIndex: Int ) = {
+		                 targetUserVector: Vector[Double], 
+		                 testTime: Vector[Long], 
+		                 targetMovieIndex: Int ) = {
 
 		var nearestTable = nearestNeighbors(similarityTable, targetUserVector)
 
@@ -297,12 +297,12 @@ object Recommendation {
 							math.abs(similarityTable.sim(targetMovieIndex, x))
 						}.reduceLeft(_+_)
 
+			//!! 沒人評價過targetMovie時，targetMovie與其他電影similarity皆為零，
+			//    prediction分母便為零。resolved
 			if(value2 == 0){
-				nearestTable(targetMovieIndex).foreach{ x =>
-							print(" " + targetUserVector(x))// * similarityTable.sim(targetMovieIndex, x) 
-						}
-				println
-			}						
+				println("  !!!!!! cosineSimilarity denominator==0")
+			}
+
 			value1 / value2
 			
 		}
@@ -310,9 +310,9 @@ object Recommendation {
 	}
 
 	def recencyBasedPredict(similarityTable: Similarity, 
-							targetUserVector: Vector[Double], 
-							testTime: Vector[Long],
-							targetMovieIndex: Int ) = {
+		                    targetUserVector: Vector[Double], 
+		                    testTime: Vector[Long], 
+		                    targetMovieIndex: Int ) = {
 
 		var nearestTable = nearestNeighbors(similarityTable, targetUserVector)
 
@@ -351,68 +351,18 @@ object Recommendation {
 			val value2 = nearestZipWeight.map{ x =>
 							similarityTable.sim(targetMovieIndex, x._1) * x._2
 						}.reduceLeft(_+_)
+	
+			//!! 沒人評價過targetMovie時，targetMovie與其他電影similarity皆為零，
+			//    prediction分母便為零。resolved
+			if(value2 == 0){
+				println("  !!!!!! cosineSimilarity denominator==0")
+			}	
 
 			value1 / value2
 			
 		}
 
 	}
-
-	/*
-	def recencyBasedPrediction(similarTable: Similarity, 
-				   nearestTable: Vector[List[Int]]): Vector[Vector[Double]] = {
-
-		def ratingWeight(targetUser: Int, targetMovie: Int, nearestTable: Vector[List[Int]]): List[Double] = {
-			def recentNearestNeighbor(): Int = {
-					nearestTable(targetMovie)
-					.map(x => (x, timestamp(targetUser)(x)))
-					.reduceLeft( (a,b) => if(a._2 < b._2) b else a)
-					._1
-			}
-
-			val k = recentNearestNeighbor()
-			//println("  recent movie: " + k)
-
-			nearestTable(targetMovie).map{ i =>		
-				val recentRating = ratings(targetUser)(k)
-				math.pow(1.0 - math.abs(ratings(targetUser)(i)-recentRating)/ratingScale, alpha)	
-			}
-
-
-		}
-
-		def predictPreferece(userIndex: Int, movieIndex: Int): Double = {
-
-			//!! what if empty
-			if(nearestTable(movieIndex).isEmpty)
-				-1.0
-			else{
-				//println("user " + userIndex + " movie " + movieIndex + " nearest neighbors: " + nearestTable(movieIndex))
-				//println("  " + ratingWeight(userIndex,movieIndex,nearestTable))
-				val weightList = ratingWeight(userIndex,movieIndex,nearestTable)
-				
-				val nearestZipWeight = nearestTable(movieIndex).zip(weightList)
-				val value1 = nearestZipWeight.map{ x =>
-								ratings(userIndex)(x._1) * similarTable.sim(movieIndex, x._1) * x._2
-							}.reduceLeft(_+_)
-				val value2 = nearestZipWeight.map{ x =>
-								similarTable.sim(movieIndex, x._1) * x._2
-							}.reduceLeft(_+_)
-				value1 / value2
-			}
-		}
-
-		(for(i <- 0 until numTrainUsers) yield {
-			(for (j <- 0 until numMovies) yield {
-				if(ratings(i)(j) != 0.0)
-					ratings(i)(j)
-				else{
-					predictPreferece(i,j)
-				}
-			}).toVector
-		}).toVector	
-	}
-	*/
 
 	def evaluationMAE(userIndex: Int, predictValue: Double) = {
 		val n = ratings(userIndex).count(_ != 0.0)
@@ -424,7 +374,7 @@ object Recommendation {
 
 		//!!move the follow code to top
 
-		val selection = 5 
+		val selection = 1 
 
 		//Train by "ratings" which is an initialed globle data structure 
 		val (predictFunction, similarityTable) = selection match{
@@ -456,13 +406,24 @@ object Recommendation {
 									.reduceLeft( (a,b) => if (a.timestamp > b.timestamp) a else b)
 									.movieID - 1
 
-			val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
-			//if(predictValue.isNaN) {
-				println("User " + user + " and movie " + targetMovieIndex + " : ")
-				println(" " +predictValue)
-				println(" " + testUser(targetMovieIndex))
-				println
-			//}
+				var movieBeRated = false
+				for(i <- 0 until numTrainUsers)
+					if(ratings(i)(targetMovieIndex) > 0.0)
+						movieBeRated = true
+				if(movieBeRated){
+					val predictValue = predictFunction(similarityTable, testUser, testTime, targetMovieIndex)
+
+					println("User " + user + " and movie " + targetMovieIndex + " : ")
+					println(" " + predictValue)
+					println(" " + testUser(targetMovieIndex))
+					println					
+				}else{
+					print("No user rate the movie " + targetMovieIndex )
+					println(" ,we skip this test data")
+					println
+				}
+
+
 		} //end of for
 
 
